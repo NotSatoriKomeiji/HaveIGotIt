@@ -1,85 +1,105 @@
-# HaveIGotIt?
+# HaveIGotIt? — 下载过了没？
 
-**Ever downloaded the same installer twice? Your PC remembers. Now you do too.**
+一个 Windows 原生托盘小工具：记住你授权目录里的安装包、压缩包；识别到下载中的同名文件时先提醒，下载完成后再核验。
 
-A small Windows tray app that remembers installers and archives in folders you explicitly authorize. Named browser temporary files can trigger an early, unverified same-name hint; completed files undergo evidence checks. The corner alarm has exactly two actions: **Open Location** and **Ignore**.
+**这是警笛，不包括里面的警察。** 提醒只有「打开旧文件位置」「忽略」两个按钮，保留、删除、继续下载都由用户自己决定。
 
-It is an alarm, not a cleaner. Decisions stay with you.
+## 使用
 
-[简体中文说明](README_CN.md) · [Architecture and matching rules](docs/ARCHITECTURE.md) · [Validation](docs/VALIDATION.md)
+1. 解压中文或英文 Windows x64 包，运行 `HaveIGotIt.exe`。
+2. 「添加文件夹」：先添加 Downloads，再添加你存放旧安装包的目录。只有这些目录及其子目录会被索引。
+3. 等待初次索引完成。关闭设置窗口后驻留托盘；双击托盘打开设置，右键托盘退出。
+4. 浏览器创建带目标名称的 `.crdownload` / `.part` 文件时，已有同名文件就先提醒，注明大小、版本和内容尚未核对。完成后核验结果只更新原提醒；点「忽略」后不会再弹。下次下载依然会提醒。
+5. 在目录列表选中一个目录，点击「移除目录」即可停止监听并清除它的索引。**不会删除目录或文件。**
 
-## Start
+「重建索引」用于校正索引、处理程序关闭期间的变化，或在移动硬盘重新连接后恢复监听。添加目录及首次扫描可能耗时，尤其是授权整个磁盘时。
 
-1. Extract the English or Chinese Windows x64 ZIP and run `HaveIGotIt.exe`.
-2. Click **Add folder** and authorize your Downloads folder and any installer/archive storage folders.
-3. Wait for the initial index. Close the window to leave the app in the tray.
-4. Start a download in an authorized folder. A recognizable `.crdownload` / `.part` name can trigger a same-name hint before completion. Size, version and content are explicitly unverified. Completion updates that hint in place, or withdraws it if verification finds no match.
-5. **Ignore** dismisses only this download's alarm. The next download can warn again, including the same bytes or the same destination path after a new write.
+中文包默认中文、英文包默认英文，均可切换语言。两者共用同一份本地索引和已保存的语言设置；已经保存语言后，换另一种包不会覆盖个人设置。单用户只运行一个实例。
 
-Double-click the tray icon for settings. Right-click it to exit. Add/remove folders at any time; removing a folder removes its database records, not its files. The **Rebuild index** button repairs the index and reconnects watches after a drive becomes available again.
+## 已实现的规则
 
-English and Chinese packages contain the same core with different first-launch language defaults. Both can switch language in settings. They share one per-user index and saved language preference. Do not run both together.
+| 情况 | 行为 |
+|---|---|
+| `SteamSetup.exe` → `SteamSetup (1).exe` / `SteamSetup（2）.exe` | 去掉末尾数字副本后缀，继续核对 |
+| 文件名大小写不同、连续出现副本后缀 | 可正确规范化 |
+| `x64` / `arm64`、stable / beta 或压缩格式不同 | 保留区别，不泛化为同一安装包 |
+| 下载中的临时文件可恢复目标名称，已有同名候选 | 立即给出未核验的同名预警，不读下载内容、不报确定重复 |
+| 已知版本相同、规范化名称相同，大小差异 ≤10% | 可提示可能重复 |
+| 没有可比版本信息，但名称、大小、抽样哈希一致 | 可提示可能重复 |
+| 已知版本冲突 | 不报重复；符合年龄规则时显示单独的旧包提醒 |
+| 完成后未知版本且抽样内容不同 | 不报重复；仍显示的同名预警会撤回 |
+| 忽略后又下载一次，或同一路径再次写入 | 仍可提醒；没有永久忽略名单 |
+| 同一次下载触发多次事件、临时文件改名 | 下载会话只新弹一次；完成结果不恢复已忽略提醒 |
+| 删除已索引文件 / 含索引文件的子目录 | 立即移除对应索引；连续删除合并后只触发一轮分批校验 |
+| 旧文件已不存在、不可访问或被替换 | 不显示失效提醒；已显示和排队的提醒也会撤回 |
+| 移除授权目录 | 清除该目录索引与相关提醒，保留磁盘文件 |
 
-## What qualifies
+支持 `.exe / .msi / .msix / .msixbundle / .zip / .rar / .7z / .iso / .cab / .tar.gz / .tar.xz / .tar.bz2`。不强制要求 setup 等关键词，以免漏掉普通名称的压缩包。程序不解压文件、不执行安装器。
 
-- Supported extensions: `.exe`, `.msi`, `.msix`, `.msixbundle`, `.zip`, `.rar`, `.7z`, `.iso`, `.cab`, `.tar.gz`, `.tar.xz`, `.tar.bz2`.
-- No required filename keyword: `abc.zip` is eligible too. An `.exe` is not assumed to be an installer based on its extension alone.
-- Case differences and trailing numeric copy counters such as ` (1)`, `（2）`, or repeated counters are normalized. Product version, architecture, channel and package-format text remain significant.
-- The size difference must be at most 10% of the larger file. Matching name alone is insufficient: sampled content must agree, or comparable known versions must agree.
-- Known filename-version or EXE-resource-version conflicts override duplicate matching. Signer identity is not used as a version number.
-- Completed unversioned files with different sampled content do not receive a duplicate result. Any visible early same-name hint is withdrawn; it is never treated as verified evidence.
-- Sampling reads at most three 64 KiB regions plus metadata, and is **not** a full-file equality check. The UI says “possible duplicate.”
+版本来源：文件名中的明确版本号，以及 EXE 的固定产品版本资源。MSI、压缩包内部版本目前不读取。签名发布者不能用来区分版本，因为同一发布者可以签署很多不同版本。
 
-The optional-looking age line is included automatically in a qualifying alarm when the old file's earliest available filesystem date is **strictly over three calendar months old**. For a confidently matching filename identity with different known versions, it can show a separate **older package advisory**, never a duplicate warning. It does not claim whether the new version is an upgrade or downgrade. There is no daily age popup or automatic cleanup.
+大小差异按 `abs(a-b) / max(a,b)` 计算，10% 为包含边界的上限；它不是单独触发提醒的充分条件。抽样读取文件头、中间、尾部各至多 64 KiB，不能证明整个文件字节相同，因此不会显示虚构的「98%相似度」或「完全相同」。
 
-## Event-driven operation
+## 超过三个月的额外提示
 
-Idle workers block on notifications and messages. There is no periodic whole-folder polling or full-file hashing. A small OS filesystem listener must remain alive to learn that files appeared: memory use is **not zero** and has not been benchmarked on Windows.
+按三个**日历月**计算，必须严格超过边界。提示只在新文件到来且匹配成立时出现，不定时打扰用户。
 
-Initial authorization/startup, manual rebuild, and recovery from lost events reconcile the index. Ordinary file changes query indexed candidates and update only affected records. Directory imports/renames baseline only the affected subtree.
+- 重复候选超过三个月：原提醒里附带年龄说明。
+- 同一文件名身份（保留平台、架构、渠道和格式）但已知版本不同，旧包超过三个月：显示「旧版本安装包还在这里」，明确说明是年龄提醒。
+- 不声称新版本一定更新，也不把不同版本说成重复。
 
-Removing indexed files or their containing directories immediately removes the affected rows and schedules **one** metadata-only validation sweep after **one second of quiet**. Consecutive deletion events share that sweep. It uses keyset pages of at most **64 records**, an **8 ms soft budget**, and **one-second pauses between pages**; completion returns to indefinite idle waiting. No recurring validation timer, new thread, dependency, full-folder walk or hash recomputation is added. Unindexed temporary-file deletions do not trigger a sweep.
+日期取可用的创建日期和修改日期中较早者。复制或解压可能保留旧修改时间，所以提示写的是「最早的文件系统日期」，不冒充准确的浏览器下载日期。
 
-Missing files lose their index entries only. Unavailable roots and permission failures retain records, but cannot provide alarm candidates. Changed files lose stale hash/version evidence without advancing the completed-write fingerprint and suppressing a pending download. Page allocations are dropped after each batch; SQLite can release idle cache memory at the end, while freed database pages are reused. No forced working-set trimming or expensive VACUUM is performed.
+## 资源与边界
 
-Every queued alarm checks the old file again before presentation, including existence, file type, authorization and size/write time. Missing or changed old files withdraw visible/queued alarms. Filesystem events do not identify the human actor or an Explorer deletion-operation boundary: deletions separated by more than a second are treated as a new burst. Startup scanning repairs changes made while the app was stopped.
+空闲时没有周期扫描，工作线程阻塞等待 Windows 文件事件。事件监听器仍须常驻，内存不可能为零；这版还没有 Windows 真机 CPU / RAM 实测结果。
 
-Temporary files are never indexed, read or hashed. Names such as `tool (1).exe.crdownload` or `tool（2）.zip.part` are looked up immediately through the existing name index. One download-session ID follows the temporary-to-final rename: completion never resurrects an ignored alarm. Browser final renames attempt verification immediately, removing the previous fixed four-second delay. Ordinary final-name writes retain two 150 ms quiet checks and Windows' writer-excluding read handle. Busy files retry after 200 ms, then use exponential backoff up to 25.6 seconds. Files without candidates are indexed without sampled reads.
+删除事件实际移除了索引记录时，才安排一次校验：最后一个相关删除事件后安静 **1 秒**，连续单文件或批量删除合并成同一轮。每批最多 **64 条记录**，软时间预算 **8 ms**，批间让出 **1 秒**；完成后停止，没有循环计时器。只检查已索引路径的元数据，不遍历整盘、不重新算哈希、不读取 EXE 版本。未入索引的浏览器临时文件删除不会触发校验。
 
-Random temporary names such as `Unconfirmed 123.crdownload` do not reveal the target. Very small files may also complete before the OS delivers an event. Filesystem watching cannot guarantee a pre-completion warning for every download; browser download-event integration would be needed to observe the earlier browser stage. Copying eligible files can also cause alarms; the app does not identify browser intent.
+确认不存在的文件只清掉数据库记录。目录不可用或权限失败时保留记录，并继续禁止用不可用旧文件报警；变化文件的旧哈希和版本缓存失效，不会把后台校验误当成下载完成。每批数据处理后释放，校验结束请求 SQLite 释放闲置页缓存；数据库空页供后续复用，不强制压缩数据库，也不强制清空进程工作集。
 
-## Local data and limits
+弹窗显示前会重新检查旧文件的存在性、类型、授权及修改信息，因此不会等校验结束才拦住失效提醒。文件系统只报告删除事件，不能识别操作者或 Explorer 批次边界；间隔超过 1 秒的删除按下一批处理。程序退出期间的变化由下次启动扫描校正。
 
-Configuration and the SQLite index live in `%LOCALAPPDATA%\HaveIGotIt\index.sqlite3`. The app has no network client, browser integration, telemetry, upload, file execution, download cancellation or file-deletion feature.
+启动、初次授权、手动重建、事件丢失后的修复会校正索引；正常下载只处理对应文件和数据库候选。目录结构变化只处理受影响子树。
 
-Subfolders are included; child symlinks, junctions and other reparse points are skipped. Local folders only; online-only cloud placeholders and network shares are outside this first version. Unavailable folders remain configured. Permission failures are reported and prevent a partial scan from purging unreadable records. Candidates are checked again before alarming and before opening Explorer.
+临时文件不进入索引，也不读取其内容。`软件 (1).exe.crdownload`、`软件（2）.zip.part` 这样的名称可先用现有名称索引预警。确认完成改名后立即尝试核验，不再固定等 4 秒；普通最终文件创建/写入保留两轮各 150 ms 的安静期，Windows 拒绝并发写入的读句柄及抽样前后检查仍保留。占用文件先以 200 ms 重试，再指数退避，最长间隔 25.6 秒。没有候选时只记录元数据，不做抽样哈希。
 
-During extreme event storms the queue is bounded and the index is reconciled; some alarms may be missed. At most 128 database candidates are examined per new file and the visible alarm queue is bounded. Whole-directory imports may be treated as a baseline. Initial scans of whole drives can take time. If a download manager keeps its final name but releases all write handles during a long pause, readiness is a heuristic; browser temporary-name downloads are the best-supported flow.
+随机临时名（如 `Unconfirmed 123.crdownload`）不包含目标名称，单靠文件监听无法提前识别。瞬间下完的小文件也可能先完成再收到系统事件。这版不能保证所有下载都在完成前提示，更不是下载前拦截；要再提前到浏览器发起下载的时刻，需要另行接入浏览器下载事件。复制文件也可能提醒；整目录导入/移动可能按已有文件建立基线。
 
-Target: Windows 10/11 x64. The supplied binary is an unsigned, cross-compiled **first trial build**, not a claim of completed Windows UI testing. See validation before publishing it as a stable release.
+仅支持本地目录，跳过子级符号链接、junction 和其他 reparse point；网络共享、仅在线云盘占位文件不在首版支持范围。目录暂时离线不会移除授权配置；重新连接后点击重建。权限失败会显示提示，部分扫描不会借机清掉不可读文件的索引。
 
-## Build from source
+极端事件积压时有队列上限，会重建索引并提示可能遗漏提醒。每个新文件最多查询 128 个候选；提醒队列也有限。某些下载器使用最终文件名，暂停时又释放写句柄，完成判断仍可能提前；浏览器临时文件改名流程支持最好。
 
-Install current stable Rust and the Visual Studio C++ Build Tools with a Windows SDK on Windows:
+数据保存在 `%LOCALAPPDATA%\HaveIGotIt\index.sqlite3`。没有联网、遥测、自动执行、自动删除或取消下载功能；只写自己的数据库。
+
+## 构建与发布
+
+Windows 10/11 x64，安装当前稳定版 Rust，以及带 Windows SDK 的 Visual Studio C++ Build Tools：
 
 ```powershell
 cargo test --locked
 cargo fmt --check
 cargo clippy --locked --all-targets -- -D warnings
 cargo build --locked --release
-# Chinese first-launch default:
 cargo build --locked --release --features zh-release
-# Or build both ZIPs:
 powershell -NoProfile -File scripts/build-release.ps1
 ```
 
-The binary is `target\release\haveigotit.exe`. `--background` starts with settings hidden; no startup entry is created automatically. If desired, create your own Startup-folder shortcut with that flag.
+`scripts/build-release.ps1` 会生成中文、英文 ZIP 和 SHA256 校验文件。GitHub Actions 已配好 Windows 测试、双语构建；推送 `v*` 标签后生成 draft release，供你审核后发布。本交付没有替你创建仓库或发布公开版本。
 
-CI runs portable-core and Windows tests and builds both language packages. Tags named `v*` create a GitHub draft release after tests pass; review it and publish it yourself. Nothing was uploaded to GitHub by this deliverable.
+`HaveIGotIt.exe --background` 可直接留在后台；首版不自动写开机启动项，需要的话自行建立启动文件夹快捷方式。
 
-MIT license; bundled third-party license notices are under `licenses/`.
+这是一份已交叉编译的 **v0.1.0 首版试用包**。便携核心测试、Windows 编译检查已有记录；当前环境不能运行 Windows 图形界面，弹窗、托盘、混合 DPI、Explorer 定位还需要真机试跑。详细记录和验收步骤见 [测试说明](docs/VALIDATION.md)，工程逻辑见 [架构说明](docs/ARCHITECTURE.md)。
 
 
-### Explorer-location hotfix
+### 打开旧文件位置修复
 
-The current package normalizes verbatim canonical paths before passing them to Explorer and preserves Unicode filenames. If selecting the file fails, it attempts to open only the parent directory. Both failures include native error codes. Exit the old tray process before launching this updated build; the existing index and folder configuration are retained.
+本包已修正 Windows 规范化路径传给 Explorer 时的格式兼容问题，中文、空格和其他 Unicode 文件名保留原样。如果自动选中文件失败，会尝试仅打开它所在的文件夹；两步都失败时显示错误码。重新下载本修复包前先右键托盘退出旧进程，解压后运行新的 EXE。原有目录配置与索引继续使用。
+
+### 提醒延迟修复
+
+本包包含下载中的同名预警、改名立即核验、同一次下载提醒去重，以及索引范围删除优化。测试记录见 `docs/VALIDATION.md`；测试环境中的工作线程延迟不等于 Windows 真机弹窗延迟。
+
+### 发布前界面与索引整理
+
+设置页精简了说明文字，保留名称说明、授权目录、操作按钮及索引数量。删除触发的分批校验和弹窗显示前检查已接入；自清理只处理索引及内部缓存，永远不删除用户文件。
