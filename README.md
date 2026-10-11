@@ -72,24 +72,7 @@
 
 数据保存在 `%LOCALAPPDATA%\HaveIGotIt\index.sqlite3`。没有联网、遥测、自动执行、自动删除或取消下载功能；只写自己的数据库。
 
-## 构建与发布
 
-Windows 10/11 x64，安装当前稳定版 Rust，以及带 Windows SDK 的 Visual Studio C++ Build Tools：
-
-```powershell
-cargo test --locked
-cargo fmt --check
-cargo clippy --locked --all-targets -- -D warnings
-cargo build --locked --release
-cargo build --locked --release --features zh-release
-powershell -NoProfile -File scripts/build-release.ps1
-```
-
-`scripts/build-release.ps1` 会生成中文、英文 ZIP 和 SHA256 校验文件。GitHub Actions 已配好 Windows 测试、双语构建；推送 `v*` 标签后生成 draft release，供你审核后发布。本交付没有替你创建仓库或发布公开版本。
-
-`HaveIGotIt.exe --background` 可直接留在后台；首版不自动写开机启动项，需要的话自行建立启动文件夹快捷方式。
-
-这是一份已交叉编译的 **v0.1.0 首版试用包**。便携核心测试、Windows 编译检查已有记录；当前环境不能运行 Windows 图形界面，弹窗、托盘、混合 DPI、Explorer 定位还需要真机试跑。详细记录和验收步骤见 [测试说明](docs/VALIDATION.md)，工程逻辑见 [架构说明](docs/ARCHITECTURE.md)。
 
 
 ### 打开旧文件位置修复
