@@ -1,0 +1,64 @@
+name: Check and package
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: Stable Rust
+        run: rustup update stable --no-self-update
+      - run: rustup default stable
+      - run: rustup component add rustfmt clippy
+      - run: cargo fmt --check
+      - run: cargo test --locked
+      - run: cargo clippy --locked --all-targets -- -D warnings
+  package:
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup update stable --no-self-update
+      - run: rustup default stable
+      - run: rustup component add rustfmt clippy
+      - name: Build English and Chinese packages
+        shell: pwsh
+        run: ./scripts/build-release.ps1
+      - uses: actions/upload-artifact@v7
+        with:
+          name: HaveIGotIt-windows-x64
+          path: |
+            dist/*.zip
+            dist/SHA256SUMS.txt
+  draft-release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: HaveIGotIt-windows-x64
+          path: release-files
+      - name: Create reviewable draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+          test "$RELEASE_TAG" = "v$version"
+          gh release create "$RELEASE_TAG" release-files/* --verify-tag --draft --title "HaveIGotIt? $RELEASE_TAG" --notes-file docs/RELEASE_NOTES.md
+

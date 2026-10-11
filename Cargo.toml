@@ -1,0 +1,39 @@
+[package]
+name = "haveigotit"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "A small local Windows alarm for installers you already downloaded"
+license = "MIT"
+
+[dependencies]
+chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
+notify = "8.2"
+regex = "1.11"
+rusqlite = { version = "0.37", features = ["bundled"] }
+sha2 = "0.10"
+walkdir = "2.5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+  "Win32_Foundation", "Win32_Graphics_Gdi", "Win32_Security", "Win32_Storage_FileSystem",
+  "Win32_System_Com", "Win32_System_LibraryLoader", "Win32_System_Threading", "Win32_System_WindowsProgramming",
+  "Win32_UI_HiDpi", "Win32_UI_Shell", "Win32_UI_Shell_Common", "Win32_UI_WindowsAndMessaging"
+] }
+
+[dev-dependencies]
+tempfile = "3.20"
+
+[build-dependencies]
+embed-resource = "3.0"
+
+[features]
+default = []
+zh-release = []
+
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = "s"
+strip = true
+
